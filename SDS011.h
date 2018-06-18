@@ -22,6 +22,7 @@ class SDS011 {
 		SDS011(void);
 		void begin(uint8_t pin_rx, uint8_t pin_tx);
 		int read(float *p25, float *p10);
+		int query(float *p25, float *p10);
 		void sleep();
     void mode_dsleep();
     void mode_mon_300();
