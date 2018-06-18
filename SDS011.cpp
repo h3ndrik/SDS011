@@ -32,6 +32,28 @@ static const byte SLEEPCMD[19] = {
 	0xAB	// tail
 };
 
+static const byte QUERYCMD[19] = {
+	0xAA,	// head
+	0xB4,	// command id
+	0x04,	// data byte 1
+	0x00,	// data byte 2
+	0x00,	// data byte 3
+	0x00,	// data byte 4
+	0x00,	// data byte 5
+	0x00,	// data byte 6
+	0x00,	// data byte 7
+	0x00,	// data byte 8
+	0x00,	// data byte 9
+	0x00,	// data byte 10
+	0x00,	// data byte 11
+	0x00,	// data byte 12
+	0x00,	// data byte 13
+	0xFF,	// data byte 14 (device id byte 1)
+	0xFF,	// data byte 15 (device id byte 2)
+	0x02,	// checksum
+	0xAB    // tail
+};
+	
 static const byte MODEDEEPCMD[19] = {
 	0xAA,	// head
 	0xB4,	// command id
@@ -207,6 +229,72 @@ int SDS011::read(float *p25, float *p10) {
 		yield();
 	}
 	return error;
+}
+
+// --------------------------------------------------------
+// SDS011:query
+// --------------------------------------------------------
+int SDS011::query(float *p25, float *p10) {
+	byte buffer;
+	int value;
+	int pm10_serial = 0;
+	int pm25_serial = 0;
+	int checksum_is;
+	int checksum_ok = 0;
+  bool done=false;
+  unsigned long timeout;
+
+  for (int tries=0; tries<3 && !done; tries++) {
+    for (uint8_t i = 0; i < 19; i++) {
+      sds_data->write(MODEQUERYCMD[i]);
+    }
+    sds_data->flush();
+    timeout = millis();
+    // Wait for data to become available
+    while (!sds_data->available()) {
+      if((millis() - timeout) > 500) {
+        Serial.print("Timeout! ");
+        break;
+      }
+      delay(10);
+    }
+    // Try reading the reply
+    uint8_t i=0;
+    while (i<10) {
+      if(sds_data->available() >0 ) {
+        buffer = sds_data->read();
+        switch (i) {
+		case (0): if (buffer != 0xAA) { i = -1; } break;
+		case (1): if (buffer != 0xC0) { i = -1; } break;
+		case (2): pm25_serial = value; checksum_is = value; break;
+		case (3): pm25_serial += (value << 8); checksum_is += value; break;
+		case (4): pm10_serial = value; checksum_is += value; break;
+		case (5): pm10_serial += (value << 8); checksum_is += value; break;
+		case (6): checksum_is += value; break;
+		case (7): checksum_is += value; break;
+		case (8): if (value == (checksum_is % 256)) { checksum_ok = 1; } else { i = -1; }; break;
+		case (9): if (buffer != 0xAB) { i = -1; }; break;
+	}
+        i++;
+      } else {
+        // we've waited too much, try again
+        if((millis() - timeout) > 500) {
+          Serial.print("Timeout! ");
+          break;
+        }
+        delay(10);
+      }
+      // This is the last byte, we're done
+      if(i==10 && checksum_ok == 1) {
+	*p10 = (float)pm10_serial/10.0;
+	*p25 = (float)pm25_serial/10.0;
+	done=true;
+      }
+      yield();
+    }
+  }
+  if (done) return 0;
+  else return 1;
 }
 
 // --------------------------------------------------------
